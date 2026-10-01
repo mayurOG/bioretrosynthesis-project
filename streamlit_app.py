@@ -1,4 +1,4 @@
-"""BioRetrosynthesis Streamlit App - Streamlit Cloud Compatible"""
+"""BioRetrosynthesis Streamlit App - Streamlit Cloud Compatible (No X11)"""
 import streamlit as st
 import pandas as pd
 import logging
@@ -6,7 +6,10 @@ from typing import Optional
 import sys
 import os
 
-# Suppress warnings
+# Suppress warnings and disable X11 for rdkit
+os.environ['QT_QPA_PLATFORM'] = 'offscreen'
+os.environ['RDKIT_NOTHREADS'] = '1'
+
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -17,7 +20,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # ============================================================================
-# SAFE IMPORTS WITH ERROR HANDLING
+# SAFE IMPORTS WITH GRACEFUL DEGRADATION
 # ============================================================================
 
 # Import basic dependencies
@@ -28,14 +31,31 @@ except ImportError as e:
     st.error(f"Missing visualization dependencies: {e}")
     st.stop()
 
-# Import rdkit safely
+# Try rdkit - handle gracefully if graphics libs missing
+RDKIT_AVAILABLE = False
 try:
+    # Set environment before importing to avoid X11 issues
+    os.environ['RDKIT_NOTHREADS'] = '1'
     from rdkit import Chem
-    from rdkit.Chem import Draw, Descriptors, AllChem, rdMolDescriptors, Crippen
+    from rdkit.Chem import Descriptors, Crippen, rdMolDescriptors
+    
+    # Try importing Draw - may fail due to X11
+    try:
+        from rdkit.Chem import Draw
+        RDKIT_DRAW_AVAILABLE = True
+    except Exception as e:
+        logger.warning(f"RDKit Draw unavailable (X11): {e}")
+        RDKIT_DRAW_AVAILABLE = False
+        # Stub out Draw functions
+        class Draw:
+            @staticmethod
+            def MolToImage(*args, **kwargs):
+                return None
+    
     RDKIT_AVAILABLE = True
 except ImportError as e:
-    st.warning(f"⚠️ RDKit not available: {e}. Some features may be limited.")
-    RDKIT_AVAILABLE = False
+    st.error(f"⚠️ Critical: RDKit not available: {e}")
+    st.stop()
 
 # Optional imports
 try:
@@ -53,6 +73,7 @@ try:
     from reaction_rules import ReactionRuleDatabase, ReactionFeasibilityScorer, GreenChemistryFilter
 except ImportError as e:
     st.error(f"Failed to load custom modules: {e}")
+    logger.exception("Module import failed")
     MODULES_AVAILABLE = False
 
 if not MODULES_AVAILABLE:
@@ -69,7 +90,7 @@ BUILDING_BLOCKS_PATH = "bio_building_block.csv"
 def init_models():
     """Initialize all models and utilities."""
     try:
-        with st.spinner("Loading models..."):
+        with st.spinner("Loading models (this may take 1-2 minutes on first load)..."):
             bundle = load_model(MODEL_PATH)
             blocks = BuildingBlockIndex.from_csv(BUILDING_BLOCKS_PATH)
             engine = RetroEngine(
@@ -103,7 +124,7 @@ def init_models():
 resources = init_models()
 
 if not resources.get("loaded"):
-    st.error("Cannot proceed without models. Please check the error above.")
+    st.error(f"Cannot proceed without models: {resources.get('error', 'Unknown error')}")
     st.stop()
 
 model_bundle = resources["bundle"]
@@ -120,8 +141,11 @@ reaction_rules = resources["rule_db"]
 st.title("🔬 Advanced BioRetrosynthesis Predictor")
 st.write("""
 Advanced retrosynthesis prediction supporting **multiple input formats**, 
-**multi-model consensus**, **reaction validation**, and **green chemistry scoring**.
+**reaction validation**, and **green chemistry scoring**.
 """)
+
+if not RDKIT_DRAW_AVAILABLE:
+    st.info("ℹ️ Running in text-only mode (molecule visualization unavailable)")
 
 # ============================================================================
 # SIDEBAR CONFIGURATION
@@ -153,13 +177,6 @@ with st.sidebar:
     st.subheader("Validation & Filtering")
     validate_lipinski = st.checkbox("Lipinski's Rule of Five check", value=True)
     green_chemistry = st.checkbox("Green chemistry scoring", value=True)
-    require_high_confidence = st.checkbox("Require high confidence", value=False)
-    confidence_threshold = st.slider(
-        "Confidence threshold",
-        0.0, 1.0, 0.6,
-        disabled=not require_high_confidence,
-        help="Filter predictions below this confidence"
-    )
     
     # Cache management
     st.subheader("Cache Management")
@@ -190,25 +207,6 @@ with col2:
 # INPUT PROCESSING & VALIDATION
 # ============================================================================
 
-def render_molecule(smiles, caption):
-    """Render molecule image or SMILES code."""
-    try:
-        if not RDKIT_AVAILABLE:
-            st.code(smiles, language=None)
-            st.caption(f"{caption} (RDKit unavailable)")
-            return
-        
-        img = smiles_to_image_base64(smiles)
-        if img:
-            st.image(img, caption=caption, width=200)
-        else:
-            st.code(smiles, language=None)
-            st.caption(f"{caption} (not renderable)")
-    except Exception as e:
-        st.code(smiles, language=None)
-        st.caption(f"{caption}")
-
-
 def show_chemical_properties(structure):
     """Display detailed chemical properties."""
     if not structure.validity:
@@ -237,7 +235,7 @@ def show_chemical_properties(structure):
         st.metric("Source", structure.source)
     
     # Lipinski compliance
-    if validate_lipinski and structure.validity and RDKIT_AVAILABLE:
+    if validate_lipinski and structure.validity:
         try:
             lipinski_result = chemistry_validator.check_lipinski_compliance(
                 Chem.MolFromSmiles(structure.smiles)
@@ -270,6 +268,8 @@ if st.button("🚀 Predict Retrosynthesis", type="primary", use_container_width=
             # Show input analysis
             st.subheader("📊 Input Molecule Analysis")
             show_chemical_properties(structure)
+            
+            st.write(f"**Input SMILES:** `{structure.smiles}`")
             
             # Step 2: Run prediction
             with st.spinner("⏳ Running multi-step retrosynthesis (this may take a minute)..."):
@@ -306,71 +306,45 @@ if st.button("🚀 Predict Retrosynthesis", type="primary", use_container_width=
             
             for i, step in enumerate(pathway, 1):
                 with st.expander(f"Step {i}: {step['product'][:50]}...", expanded=(i==1)):
-                    col1, col2 = st.columns([1, 3])
+                    st.write(f"**Product SMILES:** `{step['product']}`")
+                    st.write(f"**Depth:** {step['depth']}")
                     
-                    with col1:
-                        render_molecule(step['product'], f"Product")
+                    # Show reactants
+                    st.write("**Reactants:**")
+                    for j, reactant in enumerate(step['reactants'], 1):
+                        st.code(reactant, language="text")
                     
-                    with col2:
-                        st.write(f"**Product SMILES:** `{step['product']}`")
-                        st.write(f"**Depth:** {step['depth']}")
-                        
-                        # Show reactants
-                        st.write("**Reactants:**")
-                        for j, reactant in enumerate(step['reactants'], 1):
-                            col_r1, col_r2 = st.columns([1, 3])
-                            with col_r1:
-                                render_molecule(reactant, f"R{j}")
-                            with col_r2:
-                                st.code(reactant)
-                        
-                        # Reaction analysis
-                        if step['reactants']:
-                            try:
-                                feasibility_score, factors = ReactionFeasibilityScorer.score_reaction(
-                                    step['reactants'],
-                                    step['product']
-                                )
-                                
-                                green_score = GreenChemistryFilter.score_green_chemistry(
-                                    step['reactants'],
-                                    step['product']
-                                )
-                                
-                                col_a1, col_a2 = st.columns(2)
-                                with col_a1:
-                                    st.metric("Feasibility Score", f"{feasibility_score:.2f}")
-                                with col_a2:
-                                    st.metric("Green Chemistry Score", f"{green_score:.2f}")
-                            except Exception as e:
-                                st.caption("Reaction analysis unavailable")
+                    # Reaction analysis
+                    if step['reactants']:
+                        try:
+                            feasibility_score, factors = ReactionFeasibilityScorer.score_reaction(
+                                step['reactants'],
+                                step['product']
+                            )
+                            
+                            green_score = GreenChemistryFilter.score_green_chemistry(
+                                step['reactants'],
+                                step['product']
+                            )
+                            
+                            col_a1, col_a2 = st.columns(2)
+                            with col_a1:
+                                st.metric("Feasibility Score", f"{feasibility_score:.2f}")
+                            with col_a2:
+                                st.metric("Green Chemistry Score", f"{green_score:.2f}")
+                        except Exception as e:
+                            st.caption("Reaction analysis unavailable")
             
-            # Step 4: Visualize pathway
-            st.subheader("🧬 Retrosynthesis Tree")
+            # Step 4: Visualize pathway (text-based)
+            st.subheader("🧬 Retrosynthesis Pathway")
             
-            try:
-                dot = graphviz.Digraph()
-                dot.attr(rankdir='TB', size='10,8')
-                dot.attr('node', shape='box', style='rounded,filled', fillcolor='lightblue')
-                
-                added = set()
-                for step in pathway:
-                    product = step["product"][:30] + "..." if len(step["product"]) > 30 else step["product"]
-                    
-                    if product not in added:
-                        dot.node(product, product, shape='box')
-                        added.add(product)
-                    
-                    for reactant in step["reactants"]:
-                        reactant_label = reactant[:30] + "..." if len(reactant) > 30 else reactant
-                        if reactant_label not in added:
-                            dot.node(reactant_label, reactant_label, shape='ellipse', fillcolor='lightgreen')
-                            added.add(reactant_label)
-                        dot.edge(product, reactant_label)
-                
-                st.graphviz_chart(dot)
-            except Exception as e:
-                st.caption(f"Could not render pathway visualization")
+            pathway_text = "Target Product\n"
+            for i, step in enumerate(pathway, 1):
+                pathway_text += f"    ↓ (Step {i})\n"
+                for reactant in step['reactants']:
+                    pathway_text += f"{reactant}\n"
+            
+            st.code(pathway_text, language="text")
             
             # Step 5: Summary diagnostics
             with st.expander("📋 Full Diagnostics & Pathway Data"):
