@@ -1,16 +1,17 @@
 # Production requirements for Streamlit Cloud
-# Optimized for deployment with Python 3.12 compatibility
+# Python 3.12 compatible - all prebuilt wheels
 
+setuptools>=65.0.0
 streamlit>=1.28.0
-pandas>=1.5.0,<2.1
-numpy>=1.20.0,<2.0
-networkx
-plotly
-graphviz
+pandas>=2.1.0
+numpy>=1.24.0
+networkx>=3.0
+plotly>=5.13.0
+graphviz>=0.20.0
 rdkit
-pubchempy
+pubchempy>=1.0.4
 requests>=2.31.0
-torch
-transformers
-peft
+torch>=2.0.0
+transformers>=4.30.0
+peft>=0.4.0
 Pillow>=10.0.0
