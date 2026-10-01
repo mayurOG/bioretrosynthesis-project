@@ -1,43 +1,62 @@
-"""BioRetrosynthesis Streamlit App - Python 3.12 Compatible"""
+"""BioRetrosynthesis Streamlit App - Streamlit Cloud Compatible"""
 import streamlit as st
 import pandas as pd
 import logging
 from typing import Optional
 import sys
+import os
 
-# Handle rdkit import safely for Python 3.12 compatibility
+# Suppress warnings
+import warnings
+warnings.filterwarnings('ignore')
+
+st.set_page_config(page_title="🔬 Advanced BioRetrosynthesis", layout="wide")
+
+# Setup logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# ============================================================================
+# SAFE IMPORTS WITH ERROR HANDLING
+# ============================================================================
+
+# Import basic dependencies
 try:
     import networkx as nx
-    from rdkit import Chem
-    from rdkit.Chem import Draw
     import graphviz
-    RDKIT_AVAILABLE = True
-except (ImportError, OSError) as e:
-    st.error(f"⚠️ Critical dependency not available: {str(e)}")
-    RDKIT_AVAILABLE = False
-
-if not RDKIT_AVAILABLE:
+except ImportError as e:
+    st.error(f"Missing visualization dependencies: {e}")
     st.stop()
 
-# Optional visualization
+# Import rdkit safely
+try:
+    from rdkit import Chem
+    from rdkit.Chem import Draw, Descriptors, AllChem, rdMolDescriptors, Crippen
+    RDKIT_AVAILABLE = True
+except ImportError as e:
+    st.warning(f"⚠️ RDKit not available: {e}. Some features may be limited.")
+    RDKIT_AVAILABLE = False
+
+# Optional imports
 try:
     import plotly.graph_objects as go
+    PLOTLY_AVAILABLE = True
 except ImportError:
-    go = None
+    PLOTLY_AVAILABLE = False
 
-# Advanced modules
+# Custom modules - import with error handling
+MODULES_AVAILABLE = True
 try:
     from chemistry_utils import StructureProcessor, ChemistryValidator
     from net_model_utils import load_model, smiles_to_image_base64
     from tbr_opt import RetroEngine, BuildingBlockIndex
     from reaction_rules import ReactionRuleDatabase, ReactionFeasibilityScorer, GreenChemistryFilter
 except ImportError as e:
-    st.error(f"⚠️ Module import failed: {str(e)}")
-    st.stop()
+    st.error(f"Failed to load custom modules: {e}")
+    MODULES_AVAILABLE = False
 
-# Setup logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+if not MODULES_AVAILABLE:
+    st.stop()
 
 MODEL_PATH = "final_model"
 BUILDING_BLOCKS_PATH = "bio_building_block.csv"
@@ -50,35 +69,43 @@ BUILDING_BLOCKS_PATH = "bio_building_block.csv"
 def init_models():
     """Initialize all models and utilities."""
     try:
-        bundle = load_model(MODEL_PATH)
-        blocks = BuildingBlockIndex.from_csv(BUILDING_BLOCKS_PATH)
-        engine = RetroEngine(
-            bundle["model"],
-            bundle["tokenizer"],
-            blocks,
-            num_beams=3,
-            constrained=True,
-            batch_size=16,
-        )
-        
-        processor = StructureProcessor()
-        validator = ChemistryValidator()
-        rule_db = ReactionRuleDatabase()
-        
-        return {
-            "bundle": bundle,
-            "blocks": blocks,
-            "engine": engine,
-            "processor": processor,
-            "validator": validator,
-            "rule_db": rule_db,
-        }
+        with st.spinner("Loading models..."):
+            bundle = load_model(MODEL_PATH)
+            blocks = BuildingBlockIndex.from_csv(BUILDING_BLOCKS_PATH)
+            engine = RetroEngine(
+                bundle["model"],
+                bundle["tokenizer"],
+                blocks,
+                num_beams=3,
+                constrained=True,
+                batch_size=16,
+            )
+            
+            processor = StructureProcessor()
+            validator = ChemistryValidator()
+            rule_db = ReactionRuleDatabase()
+            
+            return {
+                "bundle": bundle,
+                "blocks": blocks,
+                "engine": engine,
+                "processor": processor,
+                "validator": validator,
+                "rule_db": rule_db,
+                "loaded": True
+            }
     except Exception as e:
         st.error(f"Failed to initialize models: {str(e)}")
-        st.stop()
+        logger.exception("Model initialization error")
+        return {"loaded": False, "error": str(e)}
 
-# Initialize
+# Initialize models
 resources = init_models()
+
+if not resources.get("loaded"):
+    st.error("Cannot proceed without models. Please check the error above.")
+    st.stop()
+
 model_bundle = resources["bundle"]
 building_blocks_index = resources["blocks"]
 engine = resources["engine"]
@@ -89,8 +116,6 @@ reaction_rules = resources["rule_db"]
 # ============================================================================
 # UI COMPONENTS
 # ============================================================================
-
-st.set_page_config(page_title="🔬 Advanced BioRetrosynthesis", layout="wide")
 
 st.title("🔬 Advanced BioRetrosynthesis Predictor")
 st.write("""
@@ -114,7 +139,7 @@ with st.sidebar:
     constrained = st.toggle(
         "Grammar-constrained decoding",
         value=True,
-        help="Masks logits for syntactically valid SMILES only (~14% slower)",
+        help="Masks logits for syntactically valid SMILES only",
     )
     num_beams = st.slider("Beam width", 1, 10, 3, help="Predictions per level")
     batch_size = st.slider("Batch size", 1, 32, 16, help="Molecules per generate() call")
@@ -122,7 +147,7 @@ with st.sidebar:
     
     # Search settings
     st.subheader("Search Settings")
-    max_depth = st.slider("Max recursion depth", 1, 10, 5)
+    max_depth_sidebar = st.slider("Max recursion depth", 1, 10, 5)
     
     # Validation & filtering
     st.subheader("Validation & Filtering")
@@ -139,8 +164,11 @@ with st.sidebar:
     # Cache management
     st.subheader("Cache Management")
     if st.button("🗑️ Clear prediction cache", use_container_width=True):
-        engine.cache.clear()
-        st.toast("✓ Cache cleared")
+        try:
+            engine.cache.clear()
+            st.toast("✓ Cache cleared")
+        except Exception as e:
+            st.warning(f"Could not clear cache: {e}")
 
 # ============================================================================
 # MAIN INPUT SECTION
@@ -165,6 +193,11 @@ with col2:
 def render_molecule(smiles, caption):
     """Render molecule image or SMILES code."""
     try:
+        if not RDKIT_AVAILABLE:
+            st.code(smiles, language=None)
+            st.caption(f"{caption} (RDKit unavailable)")
+            return
+        
         img = smiles_to_image_base64(smiles)
         if img:
             st.image(img, caption=caption, width=200)
@@ -173,7 +206,7 @@ def render_molecule(smiles, caption):
             st.caption(f"{caption} (not renderable)")
     except Exception as e:
         st.code(smiles, language=None)
-        st.caption(f"{caption} (rendering failed: {str(e)})")
+        st.caption(f"{caption}")
 
 
 def show_chemical_properties(structure):
@@ -204,7 +237,7 @@ def show_chemical_properties(structure):
         st.metric("Source", structure.source)
     
     # Lipinski compliance
-    if validate_lipinski and structure.validity:
+    if validate_lipinski and structure.validity and RDKIT_AVAILABLE:
         try:
             lipinski_result = chemistry_validator.check_lipinski_compliance(
                 Chem.MolFromSmiles(structure.smiles)
@@ -214,7 +247,7 @@ def show_chemical_properties(structure):
             else:
                 st.success("✓ Complies with Lipinski's Rule of Five")
         except Exception as e:
-            st.warning(f"Could not check Lipinski compliance: {str(e)}")
+            st.caption(f"Could not check Lipinski compliance")
 
 
 # ============================================================================
@@ -258,17 +291,21 @@ if st.button("🚀 Predict Retrosynthesis", type="primary", use_container_width=
             
             # Show statistics
             col1, col2, col3, col4 = st.columns(4)
-            stats_dict = stats.as_dict()
-            col1.metric("generate() calls", stats_dict["generate_calls"])
-            col2.metric("Molecules scored", stats_dict["molecules_scored"])
-            col3.metric("Avg batch size", stats_dict["avg_batch_size"])
-            col4.metric("Wall time (s)", stats_dict["wall_seconds"])
+            try:
+                stats_dict = stats.as_dict()
+            except:
+                stats_dict = {}
+            
+            col1.metric("Steps found", len(pathway))
+            col2.metric("Molecules scored", stats_dict.get("molecules_scored", "—"))
+            col3.metric("Avg batch size", stats_dict.get("avg_batch_size", "—"))
+            col4.metric("Time (s)", stats_dict.get("wall_seconds", "—"))
             
             # Step 3: Analyze reactions
             st.subheader("🧪 Retrosynthesis Steps")
             
             for i, step in enumerate(pathway, 1):
-                with st.expander(f"Step {i}: {step['product']}", expanded=(i==1)):
+                with st.expander(f"Step {i}: {step['product'][:50]}...", expanded=(i==1)):
                     col1, col2 = st.columns([1, 3])
                     
                     with col1:
@@ -302,17 +339,14 @@ if st.button("🚀 Predict Retrosynthesis", type="primary", use_container_width=
                                 
                                 col_a1, col_a2 = st.columns(2)
                                 with col_a1:
-                                    st.metric("Feasibility Score", f"{feasibility_score:.2f}", delta=f"{(feasibility_score-0.7)*100:+.0f}%")
+                                    st.metric("Feasibility Score", f"{feasibility_score:.2f}")
                                 with col_a2:
                                     st.metric("Green Chemistry Score", f"{green_score:.2f}")
-                                
-                                if factors:
-                                    st.caption(f"Factors: {', '.join(factors.values())}")
                             except Exception as e:
-                                st.warning(f"Reaction analysis unavailable: {str(e)}")
+                                st.caption("Reaction analysis unavailable")
             
             # Step 4: Visualize pathway
-            st.subheader("🧬 Retrosynthesis Tree Visualization")
+            st.subheader("🧬 Retrosynthesis Tree")
             
             try:
                 dot = graphviz.Digraph()
@@ -336,26 +370,27 @@ if st.button("🚀 Predict Retrosynthesis", type="primary", use_container_width=
                 
                 st.graphviz_chart(dot)
             except Exception as e:
-                st.warning(f"Could not render pathway visualization: {str(e)}")
+                st.caption(f"Could not render pathway visualization")
             
             # Step 5: Summary diagnostics
             with st.expander("📋 Full Diagnostics & Pathway Data"):
                 try:
-                    st.json(stats_dict)
+                    if stats_dict:
+                        st.json(stats_dict)
                     
-                    st.subheader("Pathway JSON")
+                    st.subheader("Pathway Summary")
                     pathway_df = pd.DataFrame([
                         {
                             "Step": i,
-                            "Product": step["product"],
-                            "Reactants": " + ".join(step["reactants"]),
+                            "Product": step["product"][:50],
+                            "Reactants": " + ".join([r[:30] for r in step["reactants"]]),
                             "Depth": step["depth"]
                         }
                         for i, step in enumerate(pathway, 1)
                     ])
                     st.dataframe(pathway_df, use_container_width=True)
                 except Exception as e:
-                    st.warning(f"Could not display diagnostics: {str(e)}")
+                    st.caption("Could not display diagnostics")
         
         except Exception as e:
             st.error(f"Prediction failed: {str(e)}")
@@ -366,11 +401,5 @@ if st.button("🚀 Predict Retrosynthesis", type="primary", use_container_width=
 # ============================================================================
 
 st.markdown("---")
-st.caption("Model: QLoRA-fine-tuned ReactionT5v2  •  Data: KEGG/MetaCyc/USPTO-NPL  •  UI: Streamlit")
-st.caption("Developed and Maintained by Mayur Nhavalde")
-st.caption("Based on original work by Suyash Utekar  •  Source: https://github.com/SuyashUtekar/TransBioRetro")
-st.caption(
-    "**Advanced features:** Multi-format input parsing (SMILES/InChI/Name/CAS/Formula), "
-    "Lipinski compliance checking, reaction rule validation, green chemistry scoring, "
-    "advanced retrosynthesis engine with batched search and canonical caching."
-)
+st.caption("Model: QLoRA-fine-tuned ReactionT5v2 | Data: KEGG/MetaCyc/USPTO-NPL | UI: Streamlit")
+st.caption("Developed by Mayur Nhavalde | Based on: https://github.com/SuyashUtekar/TransBioRetro")
