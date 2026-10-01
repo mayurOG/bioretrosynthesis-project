@@ -6,8 +6,17 @@ Generates ACTUAL, ACCURATE outputs for EVERY molecule
 import streamlit as st
 import json
 from datetime import datetime
+import os
+os.environ['QT_QPA_PLATFORM'] = 'offscreen'
+os.environ['RDKIT_NOTHREADS'] = '1'
+
 from rdkit import Chem
-from rdkit.Chem import Descriptors, Crippen, Lipinski, AllChem, Draw
+from rdkit.Chem import Descriptors, Crippen, Lipinski, AllChem
+
+try:
+    from rdkit.Chem import Draw
+except Exception:
+    Draw = None
 import pubchempy as pcp
 import requests
 

@@ -1,12 +1,20 @@
+import os
+os.environ['QT_QPA_PLATFORM'] = 'offscreen'
+os.environ['RDKIT_NOTHREADS'] = '1'
+
 import streamlit as st
 import pandas as pd
 import networkx as nx
 import plotly.graph_objects as go
 from rdkit import Chem
-from rdkit.Chem import Draw
 import graphviz
 import logging
 from typing import Optional
+
+try:
+    from rdkit.Chem import Draw
+except Exception:
+    Draw = None
 
 # Advanced modules
 from chemistry_utils import StructureProcessor, ChemistryValidator

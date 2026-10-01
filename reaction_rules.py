@@ -5,8 +5,17 @@ from typing import List, Dict, Tuple, Optional
 from dataclasses import dataclass
 import re
 
+import os
+os.environ['QT_QPA_PLATFORM'] = 'offscreen'
+os.environ['RDKIT_NOTHREADS'] = '1'
+
 from rdkit import Chem
-from rdkit.Chem import AllChem, Draw
+from rdkit.Chem import AllChem
+
+try:
+    from rdkit.Chem import Draw
+except Exception:
+    Draw = None
 
 logger = logging.getLogger(__name__)
 

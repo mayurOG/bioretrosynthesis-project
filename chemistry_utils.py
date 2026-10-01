@@ -5,9 +5,18 @@ from typing import Optional, Tuple, Dict, List
 from dataclasses import dataclass
 import re
 
+import os
+os.environ['QT_QPA_PLATFORM'] = 'offscreen'
+os.environ['RDKIT_NOTHREADS'] = '1'
+
 from rdkit import Chem
-from rdkit.Chem import AllChem, Descriptors, Crippen, Descriptors3D
+from rdkit.Chem import AllChem, Descriptors, Crippen
 from rdkit.Chem import rdMolDescriptors
+
+try:
+    from rdkit.Chem import Descriptors3D
+except Exception:
+    Descriptors3D = None
 import pubchempy as pcp
 from functools import lru_cache
 

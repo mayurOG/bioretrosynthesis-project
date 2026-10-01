@@ -1,10 +1,21 @@
+import os
+os.environ['QT_QPA_PLATFORM'] = 'offscreen'
+os.environ['RDKIT_NOTHREADS'] = '1'
+
 import torch
 from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
 from peft import PeftConfig, PeftModel
 from rdkit import Chem
-from rdkit.Chem import Draw
 from io import BytesIO
 import base64
+
+# Try importing Draw - may fail due to X11
+try:
+    from rdkit.Chem import Draw
+    DRAW_AVAILABLE = True
+except Exception:
+    DRAW_AVAILABLE = False
+    Draw = None
 
 def load_model(model_path: str):
     tokenizer = AutoTokenizer.from_pretrained("sagawa/ReactionT5v2-retrosynthesis-USPTO_50k", return_tensors="pt")
@@ -64,12 +75,19 @@ def predict_multistep(model_bundle, target_smiles: str, blocks_df, max_depth: in
     return results
 
 def smiles_to_image_base64(smiles: str) -> str:
-    mol = Chem.MolFromSmiles(smiles)
-    if mol:
-        img = Draw.MolToImage(mol, size=(200, 200))
-        buffered = BytesIO()
-        img.save(buffered, format="PNG")
-        img_str = base64.b64encode(buffered.getvalue()).decode("utf-8")
-        return f"data:image/png;base64,{img_str}"
-    else:
+    """Convert SMILES to base64 image or return None if unavailable."""
+    if not DRAW_AVAILABLE or Draw is None:
         return None
+    
+    try:
+        mol = Chem.MolFromSmiles(smiles)
+        if mol:
+            img = Draw.MolToImage(mol, size=(200, 200))
+            buffered = BytesIO()
+            img.save(buffered, format="PNG")
+            img_str = base64.b64encode(buffered.getvalue()).decode("utf-8")
+            return f"data:image/png;base64,{img_str}"
+    except Exception:
+        return None
+    
+    return None
