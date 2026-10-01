@@ -1,4 +1,19 @@
+[theme]
+primaryColor = "#1f77b4"
+backgroundColor = "#ffffff"
+secondaryBackgroundColor = "#f0f2f6"
+textColor = "#262730"
+font = "sans serif"
+
 [server]
 enableCORS = false
 maxUploadSize = 200
 headless = true
+port = 8501
+
+[client]
+toolbarMode = "minimal"
+showErrorDetails = true
+
+[logger]
+level = "info"
