@@ -330,7 +330,7 @@ if st.button("🚀 Predict Retrosynthesis", type="primary", use_container_width=
 st.markdown("---")
 st.caption("Model: QLoRA-fine-tuned ReactionT5v2  •  Data: KEGG/MetaCyc/USPTO-NPL  •  UI: Streamlit")
 st.caption("Developed and Maintained by Mayur Nhavalde")
-st.caption("Based on original work by Suyash Utekar  •  Source: https://github.com/SuyashUtekar/TransBioRetro")
+st.caption("Developed and Maintained by Mayur Nhavalde")
 st.caption(
     "**Advanced features:** Multi-format input parsing (SMILES/InChI/Name/CAS/Formula), "
     "Lipinski compliance checking, reaction rule validation, green chemistry scoring, "

@@ -435,13 +435,6 @@ If you use this advanced version in your research, please cite:
   year={2024},
   note={Enhanced with multi-format input, reaction validation, green chemistry scoring}
 }
-
-@software{utekar2023transbioretro,
-  title={TransBioRetro: Transformer-based Retrosynthesis Predictor},
-  author={Utekar, Suyash},
-  year={2023},
-  url={https://github.com/SuyashUtekar/TransBioRetro}
-}
 ```
 
 ---
