@@ -2,7 +2,7 @@
 
 **Developed and Maintained by Mayur Nhavalde**
 
-DEPLOYED ON STREAMLIT :(https://bioretrosynthesis-sqkvpfbfuld8cnfydpdy8v.streamlit.app/)
+DEPLOYED ON STREAMLIT :(https://bioretrosynthesis-project-4oujawg7qdu58dgwxpx27e.streamlit.app/)
 
 ## Overview
 
