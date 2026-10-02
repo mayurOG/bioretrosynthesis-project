@@ -376,4 +376,4 @@ if st.button("🚀 Predict Retrosynthesis", type="primary", use_container_width=
 
 st.markdown("---")
 st.caption("Model: QLoRA-fine-tuned ReactionT5v2 | Data: KEGG/MetaCyc/USPTO-NPL | UI: Streamlit")
-st.caption("Developed by Mayur Nhavalde")
+st.caption("Developed by Mayur Nhavalde | Based on: https://github.com/SuyashUtekar/TransBioRetro")
