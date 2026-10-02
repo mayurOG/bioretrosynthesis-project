@@ -148,10 +148,10 @@ Status: Public ✅
 **Streamlit Cloud:**
 https://share.streamlit.io
 
-**Your GitHub:**
+**My GitHub:**
 https://github.com/mayurOG/BioRetroSynthesis
 
-**Your Future Live App:**
+**My Live App:**
 https://bioretrosynthesis-mayurOG.streamlit.app
 (After deployment)
 
