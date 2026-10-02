@@ -1,8 +1,0 @@
-# Minimal requirements for local development
-# For production, use full requirements.txt
-
-streamlit>=1.30
-pandas>=1.3.0
-networkx
-plotly
-graphviz
